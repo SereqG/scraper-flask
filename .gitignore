@@ -77,3 +77,6 @@ dmypy.json
 # Pylint
 pylint-report.txt
 pylint-global.txt
+
+#output files
+output
