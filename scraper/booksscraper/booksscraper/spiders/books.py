@@ -19,15 +19,12 @@ class BooksSpider(scrapy.Spider):
     rating_min=None
     rating_max=None
 
-    def __init__(self, price_min=None, price_max=None, rating_min=None, rating_max=None, *args, **kwargs):
-        if price_min:
-            self.price_min = float(price_min)
-        if price_max:
-            self.price_max = float(price_max)
-        if rating_min:
-            self.rating_min = int(rating_min)
-        if rating_max:
-            self.rating_max = int(rating_max)
+    def __init__(self, request_body, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.price_min = request_body["price_min"]
+        self.price_max = request_body["price_max"]
+        self.rating_min = request_body["rating_min"]
+        self.rating_max = request_body["rating_max"]
 
 
     def check_conditions(self, book):
@@ -37,9 +34,11 @@ class BooksSpider(scrapy.Spider):
             return False
         if self.rating_min is not None and book["rating"] < self.rating_min:
             return False
-        if self.rating_max is not None and book["rating"] < self.rating_max:
+        if self.rating_max is not None and book["rating"] > self.rating_max:
             return False
         return True
+
+
 
 
     def parse(self, response):
@@ -52,25 +51,35 @@ class BooksSpider(scrapy.Spider):
         }
         books = response.css(".product_pod")
 
-        next_link = response.css(".next a").attrib["href"]
+        next_page = response.css(".next a")
+        next_link = next_page.attrib.get("href") if next_page else None
 
         for book in books:
-            price = book.css(".price_color::text").get()
-            title = book.css("h3 a::text").get()
-            rating = book.css(".star-rating").attrib["class"].split(" ")[1].lower()
+            price_text = book.css(".price_color::text").get()
+            title = book.css("h3 a::attr(title)").get()
+            rating_class = book.css(".star-rating").attrib.get("class", "")
+            rating_value = rating_class.split(" ")[1].lower() if len(rating_class.split(" ")) > 1 else "zero"
+
+            price = float(price_text.replace("£", "")) if price_text else 0.0
+            rating = rates.get(rating_value, 0)
 
             should_save_book = self.check_conditions({
-                "price": float(price.split("£")[1]),
-                "rating": rates[rating]
-                })
-            
+                "price": price,
+                "rating": rating
+            })
+
             if should_save_book:
+                link = book.css("h3 a::attr(href)").get()
+                if "catalogue" in link:
+                    link = f"https://books.toscrape.com/{link}"
+                else:
+                    link = f"https://books.toscrape.com/catalogue/{link}"
                 yield {
-                    "price": float(price.split("£")[1]),
+                    "price": price,
                     "title": title,
                     "rating": rating,
-                    "link": book.css("h3 a").attrib["href"]
+                    "link": link
                 }
 
-        if next_link is not None:
+        if next_link:
             yield response.follow(next_link, callback=self.parse)
